@@ -7,11 +7,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // Function to fetch activities from API
   async function fetchActivities() {
     try {
-      const response = await fetch("/activities");
+      // avoid stale cached response
+      const response = await fetch("/activities", { cache: "no-cache" });
       const activities = await response.json();
 
-      // Clear loading message
+      // Clear loading message and reset select options
       activitiesList.innerHTML = "";
+      activitySelect.innerHTML = `<option value="">-- Select an activity --</option>`;
 
       // Populate activities list
       Object.entries(activities).forEach(([name, details]) => {
@@ -20,14 +22,55 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const spotsLeft = details.max_participants - details.participants.length;
 
-        activityCard.innerHTML = `
+        // build html including participants list if any
+        let cardHtml = `
           <h4>${name}</h4>
           <p>${details.description}</p>
           <p><strong>Schedule:</strong> ${details.schedule}</p>
           <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
         `;
 
+        if (details.participants && details.participants.length > 0) {
+          cardHtml += `
+            <div class="participants">
+              <strong>Participants:</strong>
+              <ul>
+                ${details.participants
+                  .map(
+                    (p) =>
+                      `<li>${p}<span class=\"remove-btn\" data-activity=\"${name}\" data-email=\"${p}\">&times;</span></li>`
+                  )
+                  .join("")}
+              </ul>
+            </div>
+          `;
+        }
+
+        activityCard.innerHTML = cardHtml;
         activitiesList.appendChild(activityCard);
+
+        // attach click handlers for delete buttons
+        activityCard.querySelectorAll('.remove-btn').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const activity = btn.getAttribute('data-activity');
+            const email = btn.getAttribute('data-email');
+            try {
+              const resp = await fetch(
+                `/activities/${encodeURIComponent(activity)}/participants?email=${encodeURIComponent(
+                  email
+                )}`,
+                { method: 'DELETE' }
+              );
+              if (resp.ok) {
+                fetchActivities(); // refresh list
+              } else {
+                console.error('Failed to remove participant');
+              }
+            } catch (error) {
+              console.error('Error removing participant', error);
+            }
+          });
+        });
 
         // Add option to select dropdown
         const option = document.createElement("option");
@@ -53,6 +96,7 @@ document.addEventListener("DOMContentLoaded", () => {
         `/activities/${encodeURIComponent(activity)}/signup?email=${encodeURIComponent(email)}`,
         {
           method: "POST",
+          cache: "no-cache",
         }
       );
 
@@ -62,6 +106,8 @@ document.addEventListener("DOMContentLoaded", () => {
         messageDiv.textContent = result.message;
         messageDiv.className = "success";
         signupForm.reset();
+        // update list to show new participant
+        fetchActivities();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
